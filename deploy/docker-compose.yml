@@ -1,0 +1,57 @@
+# Audit Service — produção (VPS). A imagem vem do GHCR (publicada pelo CD deste repositório).
+# Ao lado deste arquivo fica o .env (copie de .env.example). Nunca rode `docker compose down -v` (apaga a auditoria).
+#
+# Rede compartilhada (criada UMA vez na VPS): é por ela que as aplicações (Social Flux, portfólio...) alcançam o serviço.
+#   docker network create audit-net
+#
+#   echo "<PAT read:packages>" | docker login ghcr.io -u petersonwsf --password-stdin
+#   docker compose pull && docker compose up -d
+#
+# Nenhuma porta é publicada no host: o serviço só responde na rede `audit-net`, com o nome `audit-service` (porta 8090).
+# Cada aplicação que precisa dele entra nessa rede (rede externa `audit-net` no compose dela).
+services:
+  audit_postgres:
+    image: postgres:17-alpine
+    container_name: audit-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${AUDIT_DB_NAME:-audit}
+      POSTGRES_USER: ${AUDIT_DB_USER:-audit}
+      POSTGRES_PASSWORD: ${AUDIT_DB_PASSWORD:?defina AUDIT_DB_PASSWORD no .env}
+    volumes:
+      - audit-postgres-dados:/var/lib/postgresql/data
+    networks:
+      - interna
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  audit_service:
+    image: ghcr.io/${GHCR_OWNER:-petersonwsf}/audit_service:${IMAGE_TAG:-latest}
+    container_name: audit-service
+    restart: unless-stopped
+    depends_on:
+      audit_postgres:
+        condition: service_healthy
+    environment:
+      AUDIT_DB_URL: jdbc:postgresql://audit_postgres:5432/${AUDIT_DB_NAME:-audit}
+      AUDIT_DB_USER: ${AUDIT_DB_USER:-audit}
+      AUDIT_DB_PASSWORD: ${AUDIT_DB_PASSWORD}
+      AUDIT_READ_TOKEN: ${AUDIT_READ_TOKEN:?defina AUDIT_READ_TOKEN no .env (openssl rand -base64 48)}
+      AUDIT_ADMIN_TOKEN: ${AUDIT_ADMIN_TOKEN:?defina AUDIT_ADMIN_TOKEN no .env (openssl rand -base64 48)}
+      AUDIT_RETENTION_DEFAULT_DAYS: ${AUDIT_RETENTION_DEFAULT_DAYS:-365}
+    networks:
+      interna:
+      audit-net:
+        aliases:
+          - audit-service
+
+networks:
+  interna:
+  audit-net:
+    external: true
+
+volumes:
+  audit-postgres-dados:
