@@ -1,0 +1,64 @@
+spring:
+  application:
+    name: audit-service
+  datasource:
+    # Banco PRÓPRIO do serviço de auditoria (PostgreSQL dedicado).
+    url: ${AUDIT_DB_URL:jdbc:postgresql://localhost:5433/audit}
+    username: ${AUDIT_DB_USER:audit}
+    password: ${AUDIT_DB_PASSWORD:}
+  flyway:
+    enabled: true
+
+server:
+  port: ${SERVER_PORT:8090}
+  # O serviço só é alcançado pela rede interna; não confia em cabeçalhos X-Forwarded-*.
+  forward-headers-strategy: none
+  error:
+    include-message: never
+    include-stacktrace: never
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+audit:
+  security:
+    # Segredos longos e aleatórios (>= 32 caracteres). O serviço NÃO sobe sem eles.
+    # Leitura: consulta de eventos (gerenciador). Administração: cadastro de aplicações e chaves.
+    read-token: ${AUDIT_READ_TOKEN:}
+    admin-token: ${AUDIT_ADMIN_TOKEN:}
+    # Falhas de autenticação por IP, por minuto, antes de responder 429.
+    failed-auth-per-minute: ${AUDIT_FAILED_AUTH_PER_MINUTE:30}
+  limits:
+    max-batch: ${AUDIT_MAX_BATCH:100}
+    max-detail-bytes: ${AUDIT_MAX_DETAIL_BYTES:4096}
+    requests-per-minute-per-key: ${AUDIT_REQUESTS_PER_MINUTE_PER_KEY:1200}
+    # Eventos mais antigos que isso, ou no futuro além da tolerância, são recusados.
+    max-past-age: ${AUDIT_MAX_PAST_AGE:P180D}
+    max-future-skew: ${AUDIT_MAX_FUTURE_SKEW:PT5M}
+  retention:
+    enabled: ${AUDIT_RETENTION_ENABLED:true}
+    interval: ${AUDIT_RETENTION_INTERVAL:PT6H}
+    # Retenção das aplicações novas, quando o cadastro não informa (dias).
+    default-days: ${AUDIT_RETENTION_DEFAULT_DAYS:365}
+    # Quantos meses à frente as partições são criadas.
+    partitions-ahead: ${AUDIT_PARTITIONS_AHEAD:2}
+    delete-batch-size: ${AUDIT_DELETE_BATCH_SIZE:2000}
+
+logging:
+  pattern:
+    # Id de correlação em cada linha do console de desenvolvimento. Em container o log sai em JSON
+    # (LOGGING_STRUCTURED_FORMAT_CONSOLE=logstash, definido no Dockerfile), com o campo `correlationId`.
+    correlation: "[%X{correlationId:-}] "
+  level:
+    com.petersonwsf: ${LOG_LEVEL:INFO}
+  structured:
+    json:
+      add:
+        service: ${spring.application.name}
